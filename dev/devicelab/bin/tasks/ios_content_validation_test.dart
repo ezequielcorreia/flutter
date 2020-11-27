@@ -14,8 +14,6 @@ import 'package:path/path.dart' as path;
 Future<void> main() async {
   await task(() async {
     try {
-      bool foundProjectName = false;
-      bool bitcode = false;
       await runProjectTest((FlutterProject flutterProject) async {
         section('Build app with with --obfuscate');
         await inDirectory(flutterProject.rootPath, () async {
@@ -50,6 +48,16 @@ Future<void> main() async {
 
         if (!outputAppFrameworkBinary.existsSync()) {
           fail('Failed to produce expected output at ${outputAppFrameworkBinary.path}');
+<<<<<<< HEAD
+=======
+        }
+
+        if (await dartObservatoryBonjourServiceFound(outputAppPath)) {
+          throw TaskResult.failure('Release bundle has unexpected NSBonjourServices');
+        }
+        if (await localNetworkUsageFound(outputAppPath)) {
+          throw TaskResult.failure('Release bundle has unexpected NSLocalNetworkUsageDescription');
+>>>>>>> 1aafb3a8b9b0c36241c5f5b34ee914770f015818
         }
 
         section('Validate obfuscation');
@@ -63,11 +71,11 @@ Future<void> main() async {
             canFail: true,
           );
           if (response.trim().contains('matches')) {
-            foundProjectName = true;
+            throw TaskResult.failure('Found project name in obfuscated dart library');
           }
         });
 
-        section('Validate bitcode');
+        section('Validate release contents');
 
         final Directory outputFlutterFramework = Directory(path.join(
           flutterProject.rootPath,
@@ -83,7 +91,17 @@ Future<void> main() async {
         if (!outputFlutterFrameworkBinary.existsSync()) {
           fail('Failed to produce expected output at ${outputFlutterFrameworkBinary.path}');
         }
+<<<<<<< HEAD
         bitcode = await containsBitcode(outputFlutterFrameworkBinary.path);
+=======
+
+        // Archiving should contain a bitcode blob, but not building in release.
+        // This mimics Xcode behavior and present a developer from having to install a
+        // 300+MB app to test devices.
+        if (await containsBitcode(outputFlutterFrameworkBinary.path)) {
+          throw TaskResult.failure('Bitcode present in Flutter.framework');
+        }
+>>>>>>> 1aafb3a8b9b0c36241c5f5b34ee914770f015818
 
         section('Xcode backend script');
 
@@ -99,6 +117,7 @@ Future<void> main() async {
           'flutter_tools',
           'bin',
           'xcode_backend.sh'
+<<<<<<< HEAD
         );
 
         // Simulate a commonly Xcode build setting misconfiguration
@@ -127,16 +146,65 @@ Future<void> main() async {
           fail('Failed to re-embed ${outputAppFrameworkBinary.path}');
         }
       });
+=======
+        );
 
-      if (foundProjectName) {
-        return TaskResult.failure('Found project name in obfuscated dart library');
-      }
-      // Archiving should contain a bitcode blob, but not building in release.
-      // This mimics Xcode behavior and present a developer from having to install a
-      // 300+MB app to test devices.
-      if (bitcode) {
-        return TaskResult.failure('Bitcode present in Flutter.framework');
-      }
+        // Simulate a common Xcode build setting misconfiguration
+        // where FLUTTER_APPLICATION_PATH is missing
+        final int result = await exec(
+          xcodeBackendPath,
+          <String>['embed_and_thin'],
+          environment: <String, String>{
+            'SOURCE_ROOT': flutterProject.iosPath,
+            'TARGET_BUILD_DIR': buildPath,
+            'FRAMEWORKS_FOLDER_PATH': 'Runner.app/Frameworks',
+            'VERBOSE_SCRIPT_LOGGING': '1',
+            'FLUTTER_BUILD_MODE': 'release',
+            'ACTION': 'install', // Skip bitcode stripping since we just checked that above.
+          },
+        );
+
+        if (result != 0) {
+          fail('xcode_backend embed_and_thin failed');
+        }
+>>>>>>> 1aafb3a8b9b0c36241c5f5b34ee914770f015818
+
+        if (!outputFlutterFrameworkBinary.existsSync()) {
+          fail('Failed to re-embed ${outputFlutterFrameworkBinary.path}');
+        }
+
+        if (!outputAppFrameworkBinary.existsSync()) {
+          fail('Failed to re-embed ${outputAppFrameworkBinary.path}');
+        }
+
+        section('Clean build');
+
+        await inDirectory(flutterProject.rootPath, () async {
+          await flutter('clean');
+        });
+
+        section('Validate debug contents');
+
+        await inDirectory(flutterProject.rootPath, () async {
+          await flutter('build', options: <String>[
+            'ios',
+            '--debug',
+            '--no-codesign',
+          ]);
+        });
+
+        // Debug should also not contain bitcode.
+        if (await containsBitcode(outputFlutterFrameworkBinary.path)) {
+          throw TaskResult.failure('Bitcode present in Flutter.framework');
+        }
+
+        if (!await dartObservatoryBonjourServiceFound(outputAppPath)) {
+          throw TaskResult.failure('Debug bundle is missing NSBonjourServices');
+        }
+        if (!await localNetworkUsageFound(outputAppPath)) {
+          throw TaskResult.failure('Debug bundle is missing NSLocalNetworkUsageDescription');
+        }
+      });
 
       return TaskResult.success(null);
     } on TaskResult catch (taskResult) {

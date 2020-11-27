@@ -4,17 +4,20 @@
 
 import 'package:flutter_tools/src/base/file_system.dart';
 import 'package:flutter_tools/src/base/io.dart';
+<<<<<<< HEAD
 
+=======
+import 'package:flutter_tools/src/base/platform.dart';
+>>>>>>> 1aafb3a8b9b0c36241c5f5b34ee914770f015818
 import 'package:flutter_tools/src/cache.dart';
 import 'package:flutter_tools/src/commands/upgrade.dart';
 import 'package:flutter_tools/src/convert.dart';
+import 'package:flutter_tools/src/globals.dart' as globals;
 import 'package:flutter_tools/src/persistent_tool_state.dart';
 import 'package:flutter_tools/src/runner/flutter_command.dart';
 import 'package:flutter_tools/src/version.dart';
 import 'package:mockito/mockito.dart';
-import 'package:platform/platform.dart';
 import 'package:process/process.dart';
-import 'package:flutter_tools/src/globals.dart' as globals;
 
 import '../../src/common.dart';
 import '../../src/context.dart';
@@ -324,13 +327,21 @@ void main() {
         fakeProcessManager = FakeProcessManager.list(<FakeCommand>[
           const FakeCommand(
             command: <String>[
+<<<<<<< HEAD
               'git', 'tag', '--contains', 'HEAD',
+=======
+              'git', 'tag', '--points-at', 'HEAD',
+>>>>>>> 1aafb3a8b9b0c36241c5f5b34ee914770f015818
             ],
             stdout: '',
           ),
           const FakeCommand(
             command: <String>[
+<<<<<<< HEAD
               'git', 'describe', '--match', '*.*.*-*.*.pre', '--first-parent', '--long', '--tags',
+=======
+              'git', 'describe', '--match', '*.*.*', '--first-parent', '--long', '--tags',
+>>>>>>> 1aafb3a8b9b0c36241c5f5b34ee914770f015818
             ],
             stdout: 'v1.12.16-19-gb45b676af',
           ),

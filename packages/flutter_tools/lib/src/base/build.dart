@@ -241,6 +241,9 @@ class AOTSnapshotter {
     final List<String> commonBuildOptions = <String>[
       '-arch', targetArch,
       if (isIOS)
+        // When the minimum version is updated, remember to update
+        // template MinimumOSVersion.
+        // https://github.com/flutter/flutter/pull/62902
         '-miphoneos-version-min=8.0',
     ];
 
@@ -298,6 +301,8 @@ class AOTSnapshotter {
       TargetPlatform.android_x64,
       TargetPlatform.ios,
       TargetPlatform.darwin_x64,
+      TargetPlatform.linux_x64,
+      TargetPlatform.windows_x64,
     ].contains(platform);
   }
 }

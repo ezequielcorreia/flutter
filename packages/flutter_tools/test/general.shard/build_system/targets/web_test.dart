@@ -5,16 +5,15 @@
 import 'package:file_testing/file_testing.dart';
 import 'package:flutter_tools/src/artifacts.dart';
 import 'package:flutter_tools/src/base/file_system.dart';
-
+import 'package:flutter_tools/src/base/platform.dart';
+import 'package:flutter_tools/src/build_info.dart';
 import 'package:flutter_tools/src/build_system/build_system.dart';
 import 'package:flutter_tools/src/build_system/depfile.dart';
-import 'package:flutter_tools/src/build_system/targets/dart.dart';
+import 'package:flutter_tools/src/build_system/targets/common.dart';
 import 'package:flutter_tools/src/build_system/targets/web.dart';
-import 'package:flutter_tools/src/dart/package_map.dart';
 import 'package:flutter_tools/src/globals.dart' as globals;
 import 'package:mockito/mockito.dart';
 import 'package:process/process.dart';
-import 'package:platform/platform.dart';
 
 import '../../../src/common.dart';
 import '../../../src/context.dart';
@@ -23,6 +22,7 @@ import '../../../src/testbed.dart';
 
 const List<String> kDart2jsLinuxArgs = <String>[
   'bin/cache/dart-sdk/bin/dart',
+   '--disable-dart-dev',
   'bin/cache/dart-sdk/bin/snapshots/dart2js.dart.snapshot',
   '--libraries-spec=bin/cache/flutter_web_sdk/libraries.json',
 ];
@@ -43,10 +43,9 @@ void main() {
 
   setUp(() {
     testbed = Testbed(setup: () {
-      final File packagesFile = globals.fs.file(globals.fs.path.join('foo', '.packages'))
+      globals.fs.file('.packages')
         ..createSync(recursive: true)
-        ..writeAsStringSync('foo:lib/\n');
-      PackageMap.globalPackagesPath = packagesFile.path;
+        ..writeAsStringSync('foo:foo/lib/\n');
       globals.fs.currentDirectory.childDirectory('bar').createSync();
       processManager = FakeProcessManager.list(<FakeCommand>[]);
 
@@ -65,7 +64,6 @@ void main() {
       depfileService = DepfileService(
       fileSystem: globals.fs,
       logger: globals.logger,
-      platform: globals.platform,
     );
       environment.buildDir.createSync(recursive: true);
     }, overrides: <Type, Generator>{
@@ -98,7 +96,15 @@ void main() {
     environment.defines[kBuildMode] = 'release';
     final Directory webResources = environment.projectDir.childDirectory('web');
     webResources.childFile('index.html')
-      .createSync(recursive: true);
+      ..createSync(recursive: true)
+      ..writeAsStringSync('''
+<html>
+  <script src="main.dart.js" type="application/javascript"></script>
+  <script>
+    navigator.serviceWorker.register('flutter_service_worker.js');
+  </script>
+</html>
+''');
     webResources.childFile('foo.txt')
       .writeAsStringSync('A');
     environment.buildDir.childFile('main.dart.js').createSync();
@@ -119,6 +125,11 @@ void main() {
 
     expect(environment.outputDir.childFile('foo.txt')
       .readAsStringSync(), 'B');
+    // Appends number to requests for service worker and main.dart.js
+    expect(environment.outputDir.childFile('index.html').readAsStringSync(), allOf(
+      contains('<script src="main.dart.js?v='),
+      contains('flutter_service_worker.js?v='),
+    ));
   }));
 
   test('WebEntrypointTarget generates an entrypoint for a file outside of main', () => testbed.run(() async {
@@ -140,7 +151,7 @@ void main() {
 
     // Import.
     expect(generated, contains("import 'file:///other/lib/main.dart' as entrypoint;"));
-    expect(generated, contains("import 'file:///foo/lib/generated_plugin_registrant.dart';"));
+    expect(generated, contains("import 'package:foo/generated_plugin_registrant.dart';"));
   }));
 
 
@@ -227,9 +238,10 @@ void main() {
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
+        '-Ddart.vm.profile=true',
         '-o',
         environment.buildDir.childFile('app.dill').absolute.path,
-         '--packages=${globals.fs.path.join('foo', '.packages')}',
+        '--packages=.packages',
         '--cfe-only',
         environment.buildDir.childFile('main.dart').absolute.path,
       ]
@@ -237,8 +249,8 @@ void main() {
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
-        '-O4',
         '-Ddart.vm.profile=true',
+        '-O4',
         '--no-minify',
         '--csp',
         '-o',
@@ -253,14 +265,17 @@ void main() {
   }));
 
 
-  test('Dart2JSTarget calls dart2js with expected args in profile mode', () => testbed.run(() async {
+  test('Dart2JSTarget calls dart2js with expected args with enabled experiment', () => testbed.run(() async {
     environment.defines[kBuildMode] = 'profile';
+    environment.defines[kExtraFrontEndOptions] = '--enable-experiment=non-nullable';
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
+        '--enable-experiment=non-nullable',
+        '-Ddart.vm.profile=true',
         '-o',
         environment.buildDir.childFile('app.dill').absolute.path,
-         '--packages=${globals.fs.path.join('foo', '.packages')}',
+        '--packages=.packages',
         '--cfe-only',
         environment.buildDir.childFile('main.dart').absolute.path,
       ]
@@ -268,8 +283,39 @@ void main() {
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
-        '-O4',
+        '--enable-experiment=non-nullable',
         '-Ddart.vm.profile=true',
+        '-O4',
+        '--no-minify',
+        '-o',
+        environment.buildDir.childFile('main.dart.js').absolute.path,
+        environment.buildDir.childFile('app.dill').absolute.path,
+      ]
+    ));
+
+    await const Dart2JSTarget().build(environment);
+  }, overrides: <Type, Generator>{
+    ProcessManager: () => processManager,
+  }));
+
+  test('Dart2JSTarget calls dart2js with expected args in profile mode', () => testbed.run(() async {
+    environment.defines[kBuildMode] = 'profile';
+    processManager.addCommand(FakeCommand(
+      command: <String>[
+        ...kDart2jsLinuxArgs,
+        '-Ddart.vm.profile=true',
+        '-o',
+        environment.buildDir.childFile('app.dill').absolute.path,
+        '--packages=.packages',
+        '--cfe-only',
+        environment.buildDir.childFile('main.dart').absolute.path,
+      ]
+    ));
+    processManager.addCommand(FakeCommand(
+      command: <String>[
+        ...kDart2jsLinuxArgs,
+        '-Ddart.vm.profile=true',
+        '-O4',
         '--no-minify',
         '-o',
         environment.buildDir.childFile('main.dart.js').absolute.path,
@@ -287,9 +333,10 @@ void main() {
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
+        '-Ddart.vm.product=true',
         '-o',
         environment.buildDir.childFile('app.dill').absolute.path,
-         '--packages=${globals.fs.path.join('foo', '.packages')}',
+        '--packages=.packages',
         '--cfe-only',
         environment.buildDir.childFile('main.dart').absolute.path,
       ]
@@ -297,8 +344,8 @@ void main() {
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
-        '-O4',
         '-Ddart.vm.product=true',
+        '-O4',
         '-o',
         environment.buildDir.childFile('main.dart.js').absolute.path,
         environment.buildDir.childFile('app.dill').absolute.path,
@@ -316,9 +363,10 @@ void main() {
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
+        '-Ddart.vm.product=true',
         '-o',
         environment.buildDir.childFile('app.dill').absolute.path,
-         '--packages=${globals.fs.path.join('foo', '.packages')}',
+        '--packages=.packages',
         '--cfe-only',
         environment.buildDir.childFile('main.dart').absolute.path,
       ]
@@ -326,8 +374,8 @@ void main() {
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
-        '-O3',
         '-Ddart.vm.product=true',
+        '-O3',
         '-o',
         environment.buildDir.childFile('main.dart.js').absolute.path,
         environment.buildDir.childFile('app.dill').absolute.path,
@@ -364,22 +412,30 @@ void main() {
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
+        '-Ddart.vm.product=true',
+        '-DFOO=bar',
+        '-DBAZ=qux',
         '-o',
         environment.buildDir.childFile('app.dill').absolute.path,
+<<<<<<< HEAD
         '-DFOO=bar',
         '-DBAZ=qux',
          '--packages=${globals.fs.path.join('foo', '.packages')}',
         '--cfe-only',
+=======
+        '--packages=.packages',
+       '--cfe-only',
+>>>>>>> 1aafb3a8b9b0c36241c5f5b34ee914770f015818
         environment.buildDir.childFile('main.dart').absolute.path,
       ]
     ));
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
-        '-O4',
         '-Ddart.vm.product=true',
         '-DFOO=bar',
         '-DBAZ=qux',
+        '-O4',
         '-o',
         environment.buildDir.childFile('main.dart.js').absolute.path,
         environment.buildDir.childFile('app.dill').absolute.path,
@@ -397,11 +453,18 @@ void main() {
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
+        '-Ddart.vm.profile=true',
+        '-DFOO=bar',
+        '-DBAZ=qux',
         '-o',
         environment.buildDir.childFile('app.dill').absolute.path,
+<<<<<<< HEAD
         '-DFOO=bar',
         '-DBAZ=qux',
          '--packages=${globals.fs.path.join('foo', '.packages')}',
+=======
+        '--packages=.packages',
+>>>>>>> 1aafb3a8b9b0c36241c5f5b34ee914770f015818
         '--cfe-only',
         environment.buildDir.childFile('main.dart').absolute.path,
       ]
@@ -409,10 +472,10 @@ void main() {
     processManager.addCommand(FakeCommand(
       command: <String>[
         ...kDart2jsLinuxArgs,
-        '-O4',
         '-Ddart.vm.profile=true',
         '-DFOO=bar',
         '-DBAZ=qux',
+        '-O4',
         '--no-minify',
         '-o',
         environment.buildDir.childFile('main.dart.js').absolute.path,
@@ -425,10 +488,25 @@ void main() {
     ProcessManager: () => processManager,
   }));
 
+<<<<<<< HEAD
+=======
+  test('Generated service worker is empty with none-strategy', () {
+    final String result = generateServiceWorker(<String, String>{'/foo': 'abcd'}, <String>[], serviceWorkerStrategy: ServiceWorkerStrategy.none);
+
+    expect(result, '');
+  });
+
+>>>>>>> 1aafb3a8b9b0c36241c5f5b34ee914770f015818
   test('Generated service worker correctly inlines file hashes', () {
-    final String result = generateServiceWorker(<String, String>{'/foo': 'abcd'});
+    final String result = generateServiceWorker(<String, String>{'/foo': 'abcd'}, <String>[], serviceWorkerStrategy: ServiceWorkerStrategy.offlineFirst);
 
     expect(result, contains('{\n  "/foo": "abcd"\n};'));
+  });
+
+  test('Generated service worker includes core files', () {
+    final String result = generateServiceWorker(<String, String>{'/foo': 'abcd'}, <String>['foo', 'bar'], serviceWorkerStrategy: ServiceWorkerStrategy.offlineFirst);
+
+    expect(result, contains('"foo",\n"bar"'));
   });
 
   test('WebServiceWorker generates a service_worker for a web resource folder', () => testbed.run(() async {
@@ -443,7 +521,11 @@ void main() {
       contains('"a/a.txt": "7fc56270e7a70fa81a5935b72eacbe29"'));
     expect(environment.buildDir.childFile('service_worker.d'), exists);
     // Depends on resource file.
-    expect(environment.buildDir.childFile('service_worker.d').readAsStringSync(), contains('a/a.txt'));
+    expect(environment.buildDir.childFile('service_worker.d').readAsStringSync(),
+      contains('a/a.txt'));
+    // Contains NOTICES
+    expect(environment.outputDir.childFile('flutter_service_worker.js').readAsStringSync(),
+      contains('NOTICES'));
   }));
 
   test('WebServiceWorker contains baseUrl cache', () => testbed.run(() async {
@@ -459,6 +541,23 @@ void main() {
     expect(environment.outputDir.childFile('flutter_service_worker.js').readAsStringSync(),
       contains('"index.html": "d41d8cd98f00b204e9800998ecf8427e"'));
     expect(environment.buildDir.childFile('service_worker.d'), exists);
+  }));
+
+  test('WebServiceWorker does not cache source maps', () => testbed.run(() async {
+    environment.outputDir
+      .childFile('main.dart.js')
+      .createSync(recursive: true);
+    environment.outputDir
+      .childFile('main.dart.js.map')
+      .createSync(recursive: true);
+    await const WebServiceWorker().build(environment);
+
+    // No caching of source maps.
+    expect(environment.outputDir.childFile('flutter_service_worker.js').readAsStringSync(),
+      isNot(contains('"main.dart.js.map"')));
+    // Expected twice, once for RESOURCES and once for CORE.
+    expect(environment.outputDir.childFile('flutter_service_worker.js').readAsStringSync(),
+      contains('"main.dart.js"'));
   }));
 }
 

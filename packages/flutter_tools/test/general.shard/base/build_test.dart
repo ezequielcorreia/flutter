@@ -3,19 +3,27 @@
 // found in the LICENSE file.
 
 import 'package:file/memory.dart';
-import 'package:mockito/mockito.dart';
-import 'package:platform/platform.dart';
-
 import 'package:flutter_tools/src/artifacts.dart';
+import 'package:flutter_tools/src/base/build.dart';
 import 'package:flutter_tools/src/base/logger.dart';
+import 'package:flutter_tools/src/base/platform.dart';
 import 'package:flutter_tools/src/base/terminal.dart';
 import 'package:flutter_tools/src/build_info.dart';
-import 'package:flutter_tools/src/base/build.dart';
 import 'package:flutter_tools/src/ios/xcodeproj.dart';
 import 'package:flutter_tools/src/macos/xcode.dart';
+import 'package:flutter_tools/src/reporting/reporting.dart';
+import 'package:mockito/mockito.dart';
 
 import '../../src/common.dart';
 import '../../src/context.dart';
+
+const FakeCommand kARMCheckCommand = FakeCommand(
+  command: <String>[
+    'sysctl',
+    'hw.optional.arm64',
+  ],
+  exitCode: 1,
+);
 
 const FakeCommand kSdkPathCommand = FakeCommand(
   command: <String>[
@@ -189,6 +197,7 @@ void main() {
             logger: logger,
             fileSystem: fileSystem,
             terminal: Terminal.test(),
+            usage: Usage.test(),
           ),
         ),
         artifacts: mockArtifacts,
@@ -264,6 +273,7 @@ void main() {
           'main.dill',
         ]
       ));
+      processManager.addCommand(kARMCheckCommand);
       processManager.addCommand(kSdkPathCommand);
       processManager.addCommand(const FakeCommand(
         command: <String>[
@@ -326,6 +336,7 @@ void main() {
           'main.dill',
         ]
       ));
+      processManager.addCommand(kARMCheckCommand);
       processManager.addCommand(kSdkPathCommand);
       processManager.addCommand(const FakeCommand(
         command: <String>[
@@ -385,6 +396,7 @@ void main() {
           'main.dill',
         ]
       ));
+      processManager.addCommand(kARMCheckCommand);
       processManager.addCommand(kSdkPathCommand);
       processManager.addCommand(const FakeCommand(
         command: <String>[
@@ -443,6 +455,7 @@ void main() {
           'main.dill',
         ]
       ));
+      processManager.addCommand(kARMCheckCommand);
       processManager.addCommand(kSdkPathCommand);
       processManager.addCommand(const FakeCommand(
         command: <String>[
@@ -498,6 +511,7 @@ void main() {
           'main.dill',
         ]
       ));
+      processManager.addCommand(kARMCheckCommand);
       processManager.addCommand(kSdkPathCommand);
       processManager.addCommand(const FakeCommand(
         command: <String>[
